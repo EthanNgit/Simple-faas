@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,8 +16,13 @@ func invokeFunction(context *gin.Context) {
 }
 
 func main() {
+
+	// Setup api routes
 	router := gin.Default()
 	router.POST("/api/functions/v1/create", createFunction)
 	router.POST("/api/functions/v1/invoke", invokeFunction)
-	router.Run("localhost:8080")
+
+	// Run the api loop
+	fmt.Println("Starting server")
+	router.Run(":8080")
 }
