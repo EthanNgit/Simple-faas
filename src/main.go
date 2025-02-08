@@ -78,12 +78,43 @@ func generateEngineId() string {
 	return fmt.Sprintf("engine-%d", rand.Intn(100000))
 }
 
+func (e *Engine) CreateFunction(name, code string) error {
+	return nil
+}
+
+func (e *Engine) InvokeFunction(name string, params map[string]interface{}) (interface{}, error) {
+	return nil, nil
+}
+
 func (e *Engine) handleCreate(c *gin.Context) {
-	c.IndentedJSON(http.StatusCreated, "Created function")
+	var req CreateRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := e.CreateFunction(req.Name, req.Code); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusCreated)
 }
 
 func (e *Engine) handleInvoke(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, "Invoked function")
+	var req InvokeRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := e.InvokeFunction(req.Name, req.Params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"result": result})
 }
 
 func main() {
