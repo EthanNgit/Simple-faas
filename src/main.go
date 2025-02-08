@@ -78,12 +78,12 @@ func generateEngineId() string {
 	return fmt.Sprintf("engine-%d", rand.Intn(100000))
 }
 
-func createHandler(context *gin.Context) {
-	context.IndentedJSON(http.StatusCreated, "Created function")
+func (e *Engine) handleCreate(c *gin.Context) {
+	c.IndentedJSON(http.StatusCreated, "Created function")
 }
 
-func invokeHandler(context *gin.Context) {
-	context.IndentedJSON(http.StatusOK, "Invoked function")
+func (e *Engine) handleInvoke(c *gin.Context) {
+	c.IndentedJSON(http.StatusOK, "Invoked function")
 }
 
 func main() {
@@ -97,8 +97,8 @@ func main() {
 
 	// Setup api routes
 	router := gin.Default()
-	router.POST("/api/functions/v1/create", createHandler)
-	router.POST("/api/functions/v1/invoke", invokeHandler)
+	router.POST("/api/functions/v1/create", engine.handleCreate)
+	router.POST("/api/functions/v1/invoke", engine.handleInvoke)
 
 	// Run the api loop
 	fmt.Println("[FAAS-debug] Starting server")
