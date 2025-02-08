@@ -1,0 +1,17 @@
+version: "3"
+services:
+  faas-engine:
+    build: .
+    environment:
+      - ENGINE_ID=${ENGINE_ID}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - faas-net
+    ports:
+      - 8080:8080
+
+networks:
+  faas-net:
+    name: faas-net
+    external: true

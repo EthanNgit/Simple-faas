@@ -1,22 +1,15 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.23-alpine AS build
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY src/ ./src/
-
-RUN go build -o server ./src/main.go
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o faas-engine .
 
 FROM alpine:latest
-
-WORKDIR /app
-
-RUN apk add --no-cache ca-certificates
-
-COPY --from=builder /app/server .
-
-EXPOSE 8080
-
-CMD ["./server"]
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=build /app/faas-engine .
+CMD ["./faas-engine"]

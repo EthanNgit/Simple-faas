@@ -120,8 +120,7 @@ func (e *Engine) handleInvoke(c *gin.Context) {
 func main() {
 	engine, err := NewEngine()
 	if err != nil {
-		fmt.Printf("[FAAS-debug] failed to start api, reason: %v\n", err)
-		return
+		panic(err)
 	}
 
 	fmt.Printf("[FAAS-debug] Engine id %s\n", engine.engId)
