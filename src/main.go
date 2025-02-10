@@ -26,6 +26,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer engine.Close()
 
 	fmt.Printf("[FAAS-debug] Engine id %s\n", engine.engId)
 
