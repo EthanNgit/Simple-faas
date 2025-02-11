@@ -24,6 +24,13 @@ type FunctionEntry struct {
 	ContainerID      sql.NullString
 }
 
+const (
+	FunctionNameMaxLen     = 50
+	FunctionLanguageMaxLen = 50
+	FunctionCodeMaxLen     = 10 * 1000
+	ContainerIdMaxLen      = 100 // max docker container name is 63
+)
+
 func ConnectDb() (*FunctionDB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		os.Getenv("DB_USER"),
@@ -57,13 +64,13 @@ func ConnectDb() (*FunctionDB, error) {
 		return nil, fmt.Errorf("database error starting database: %v", err)
 	}
 
-	query := `CREATE TABLE IF NOT EXISTS functions (
+	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS functions (
 		id INT AUTO_INCREMENT PRIMARY KEY,
-		function_name VARCHAR(50) NOT NULL,
-		function_language VARCHAR(50) NOT NULL,
-		function_code VARCHAR(10000) NOT NULL,
-		container_id VARCHAR(100)
-	)`
+		function_name VARCHAR(%d) NOT NULL,
+		function_language VARCHAR(%d) NOT NULL,
+		function_code VARCHAR(%d) NOT NULL,
+		container_id VARCHAR(%d)
+	)`, FunctionNameMaxLen, FunctionLanguageMaxLen, FunctionCodeMaxLen, ContainerIdMaxLen)
 
 	_, err = db.Exec(query)
 	if err != nil {
@@ -74,9 +81,16 @@ func ConnectDb() (*FunctionDB, error) {
 }
 
 func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCode string) (uid string, err error) {
+	if functionName == "" || functionLanguage == "" || functionCode == "" {
+		return "", fmt.Errorf("database insertion requires non empty values for functionName, language, and code")
+	} else if len(functionName) > FunctionNameMaxLen || len(functionLanguage) > FunctionLanguageMaxLen || len(functionCode) > FunctionCodeMaxLen {
+		return "", fmt.Errorf("database insertion requires function name, code, or language is too long")
+	}
+
 	tx, err := fDB.db.Begin()
 	if err != nil {
-		return "", err
+		log.Printf("database failed to start transaction: %v", err)
+		return "", fmt.Errorf("database internal error")
 	}
 	defer tx.Rollback()
 
@@ -85,24 +99,28 @@ func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCo
 		functionName, functionLanguage, functionCode,
 	)
 	if err != nil {
-		return "", fmt.Errorf("database failed to insert: %v", err)
+		log.Printf("database failed to insert: %v", err)
+		return "", fmt.Errorf("database internal error")
 	}
 
 	lID, err := res.LastInsertId()
 	if err != nil {
-		return "", fmt.Errorf("database failed to get last inserted row Id: %v", err)
+		log.Printf("database failed to get last inserted row Id: %v", err)
+		return "", fmt.Errorf("database internal error")
 	}
 
 	var fun FunctionEntry
 	row := tx.QueryRow("SELECT id, function_name, function_language, function_code, container_id FROM functions WHERE id = ?", lID)
 	err = row.Scan(&fun.ID, &fun.FunctionName, &fun.FunctionLanguage, &fun.FunctionCode, &fun.ContainerID)
 	if err != nil {
-		return "", fmt.Errorf("database failed to get the new row: %v", err)
+		log.Printf("database failed to get the new row: %v", err)
+		return "", fmt.Errorf("database internal error")
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return "", fmt.Errorf("database failed to commit the changes made: %v", err)
+		log.Printf("database failed to commit the changes made: %v", err)
+		return "", fmt.Errorf("database internal error")
 	}
 
 	return fDB.generateFunctionID(fun), nil
