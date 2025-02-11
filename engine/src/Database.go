@@ -79,6 +79,19 @@ func ConnectDb() (*FunctionDB, error) {
 		return nil, fmt.Errorf("could not connect to database")
 	}
 
+	query = `CREATE TABLE IF NOT EXISTS running_containers (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		function_id INT,
+		last_used DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (function_id) REFERENCES functions(id)
+	)`
+
+	_, err = db.Exec(query)
+	if err != nil {
+		log.Printf("database error Checking running_containers table: %v", err)
+		return nil, fmt.Errorf("could not connect to database")
+	}
+
 	return &FunctionDB{db: db}, nil
 }
 
@@ -184,4 +197,24 @@ func (fDB *FunctionDB) solveFunctionID(uid string) string {
 
 func (fDB *FunctionDB) Close() error {
 	return fDB.db.Close()
+}
+
+func (fDB *FunctionDB) UpdateLastUsedTime(uid string, create bool) error {
+	id := fDB.solveFunctionID(uid)
+
+	if create {
+		_, err := fDB.db.Exec("INSERT INTO running_containers (function_id) VALUES (?)", id)
+		if err != nil {
+			log.Printf("failed to insert last used time for container %s: %v", id, err)
+			return fmt.Errorf("database failed to update last used time")
+		}
+	} else {
+		_, err := fDB.db.Exec("UPDATE running_containers SET last_used = NOW() WHERE function_id = ?", id)
+		if err != nil {
+			log.Printf("failed to update last used time for container %s: %v", id, err)
+			return fmt.Errorf("database failed to update last used time")
+		}
+	}
+
+	return nil
 }

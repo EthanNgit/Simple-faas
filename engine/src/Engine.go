@@ -179,10 +179,13 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 			log.Printf("engine could not wait container for %s: %v", fun.ContainerID.String, err)
 			return nil, fmt.Errorf("failed to invoke function")
 		}
+
+		// add is running
+		e.db.UpdateLastUsedTime(uid, true)
 	}
 
 	return e.invokeHttpRequest(
-		fmt.Sprintf("http://%s:5000/invoke", uid),
+		uid,
 		params,
 	)
 }
@@ -228,7 +231,8 @@ func (e *Engine) waitForContainerReady(containerName string, timeout time.Durati
 	}
 }
 
-func (e *Engine) invokeHttpRequest(url string, params map[string]interface{}) (interface{}, error) {
+func (e *Engine) invokeHttpRequest(uid string, params map[string]interface{}) (interface{}, error) {
+	url := fmt.Sprintf("http://%s:5000/invoke", uid)
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -264,6 +268,7 @@ func (e *Engine) invokeHttpRequest(url string, params map[string]interface{}) (i
 		return nil, fmt.Errorf("failed to invoke function")
 	}
 
+	e.db.UpdateLastUsedTime(uid, false)
 	return result.Result, nil
 }
 
