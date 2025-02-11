@@ -84,7 +84,7 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 	defer e.mu.Unlock()
 
 	// insert the function
-	uid, err := e.db.InsertFunction(name, "go", code)
+	uid, err := e.db.InsertFunction(name, "py", code)
 	if err != nil {
 		log.Printf("engine error inserting %s: %v", name, err)
 		return "", fmt.Errorf("failed to create function")
