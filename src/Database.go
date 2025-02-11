@@ -47,7 +47,7 @@ func ConnectDb() (*FunctionDB, error) {
 	for i := 0; i < 10; i++ {
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
-			log.Println("Error opening database:", err)
+			log.Printf("Error opening database: %v", err)
 			time.Sleep(3 * time.Second)
 			continue
 		}
@@ -61,7 +61,8 @@ func ConnectDb() (*FunctionDB, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("database error starting database: %v", err)
+		log.Printf("database error starting database: %v", err)
+		return nil, fmt.Errorf("Could not connect to database")
 	}
 
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS functions (
@@ -74,7 +75,8 @@ func ConnectDb() (*FunctionDB, error) {
 
 	_, err = db.Exec(query)
 	if err != nil {
-		return nil, fmt.Errorf("database error Checking functions table: %v", err)
+		log.Printf("database error Checking functions table: %v", err)
+		return nil, fmt.Errorf("Could not connect to database")
 	}
 
 	return &FunctionDB{db: db}, nil
