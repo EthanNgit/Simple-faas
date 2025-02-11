@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -59,10 +58,10 @@ func NewEngine() (*Engine, error) {
 
 	// since we can support multiple engines, make sure to verify the network
 	ctx := context.Background()
-	_, err = cli.NetworkInspect(ctx, e.netName, types.NetworkInspectOptions{})
+	_, err = cli.NetworkInspect(ctx, e.netName, network.InspectOptions{})
 	if err != nil {
 		// try to create an network if it doesn't exist
-		_, err = cli.NetworkCreate(ctx, e.netName, types.NetworkCreate{
+		_, err = cli.NetworkCreate(ctx, e.netName, network.CreateOptions{
 			Driver: "bridge",
 		})
 		if err != nil {
