@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -32,7 +33,8 @@ func NewEngine() (*Engine, error) {
 	// connect to docker daemon
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, err
+		log.Printf("failed to connect to container client %v", err)
+		return nil, fmt.Errorf("failed to start engine")
 	}
 
 	// get a id for this container, random should be good enough
@@ -43,7 +45,8 @@ func NewEngine() (*Engine, error) {
 
 	db, err := ConnectDb()
 	if err != nil {
-		return nil, err
+		log.Printf("failed to connect to database %v", err)
+		return nil, fmt.Errorf("failed to start engine")
 	}
 
 	e := &Engine{
@@ -63,7 +66,8 @@ func NewEngine() (*Engine, error) {
 			Driver: "bridge",
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create network %v", err)
+			log.Printf("failed to create network %v", err)
+			return nil, fmt.Errorf("failed to start engine")
 		}
 	}
 
@@ -71,25 +75,21 @@ func NewEngine() (*Engine, error) {
 }
 
 func generateEngineId() string {
-	rand.Seed(time.Now().UnixNano())
-	return fmt.Sprintf("engine-%d", rand.Intn(100000))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return fmt.Sprintf("engine-%d", r.Intn(100000))
 }
 
 func (e *Engine) CreateFunction(name, code string) (string, error) {
 	// for concurrency issues
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	fmt.Printf("Creating function for %s", name)
-
-	fmt.Printf("Inserting initial function function for %s", name)
 
 	// insert the function
 	uid, err := e.db.InsertFunction(name, "go", code)
 	if err != nil {
-		return "", fmt.Errorf("engine error inserting %s: %v", name, err)
+		log.Printf("engine error inserting %s: %v", name, err)
+		return "", fmt.Errorf("failed to create function")
 	}
-
-	fmt.Printf("Creating container for %s(%s)", name, uid)
 
 	// create the container
 	ctx := context.Background()
@@ -117,22 +117,25 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 		// backtrack insertion
 		err2 := e.db.DeleteFunction(uid)
 		if err2 != nil {
-			return "", fmt.Errorf("engine error deleting %s: %v", name, err2)
+			log.Printf("engine error deleting %s: %v", name, err2)
+			return "", fmt.Errorf("failed to create function")
 		}
 
-		return "", fmt.Errorf("engine error deleting %s: %v", name, err)
+		log.Printf("engine error deleting %s: %v", name, err)
+		return "", fmt.Errorf("failed to create function")
 	}
-	fmt.Printf("Updating container id for %s(%s) with value %s", name, uid, resp.ID)
 
 	// update the cid in db
 	err = e.db.UpdateCIDToFunction(uid, resp.ID)
 	if err != nil {
-		return "", fmt.Errorf("engine updating container id for %s(%s): %v", uid, name, err)
+		log.Printf("engine updating container id for %s(%s): %v", uid, name, err)
+		return "", fmt.Errorf("failed to create function")
 	}
 
 	fun, err := e.db.GetFunction(uid)
 	if err != nil {
-		return "", fmt.Errorf("engine getting information about %s(%s): %v", uid, name, err)
+		log.Printf("engine getting information about %s(%s): %v", uid, name, err)
+		return "", fmt.Errorf("failed to create function")
 	}
 
 	e.cachedFunctions[uid] = fun
@@ -148,14 +151,16 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 		var err error
 		fun, err = e.db.GetFunction(uid)
 		if err != nil {
-			return nil, fmt.Errorf("engine could not find function in cache or storage: %v", err)
+			log.Printf("engine could not find function in cache or storage: %v", err)
+			return nil, fmt.Errorf("failed to invoke function")
 		}
 	}
 
 	ctx := context.Background()
 	inspect, err := e.cntrCli.ContainerInspect(ctx, fun.ContainerID.String)
 	if err != nil {
-		return nil, fmt.Errorf("engine could not find container for %s: %v", fun.ContainerID.String, err)
+		log.Printf("engine could not find container for %s: %v", fun.ContainerID.String, err)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 
 	if !inspect.State.Running {
@@ -164,14 +169,16 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 			fun.ContainerID.String,
 			container.StartOptions{},
 		); err != nil {
-			return nil, fmt.Errorf("engine could not start container for %s: %v", fun.ContainerID.String, err)
+			log.Printf("engine could not start container for %s: %v", fun.ContainerID.String, err)
+			return nil, fmt.Errorf("failed to invoke function")
 		}
 
 		if err := e.waitForContainerReady(
 			uid,
 			10*time.Second,
 		); err != nil {
-			return nil, fmt.Errorf("engine could not wait container for %s: %v", fun.ContainerID.String, err)
+			log.Printf("engine could not wait container for %s: %v", fun.ContainerID.String, err)
+			return nil, fmt.Errorf("failed to invoke function")
 		}
 	}
 
@@ -193,7 +200,8 @@ func (e *Engine) waitForContainerReady(containerName string, timeout time.Durati
 	for {
 		// Check timeout
 		if time.Since(startTime) > timeout {
-			return fmt.Errorf("container %s did not become ready within %v", containerName, timeout)
+			log.Printf("container %s did not become ready within %v", containerName, timeout)
+			return fmt.Errorf("failed to invoke function")
 		}
 
 		// Send health check request
@@ -208,7 +216,8 @@ func (e *Engine) waitForContainerReady(containerName string, timeout time.Durati
 			Filters: filters.NewArgs(filters.Arg("name", containerName)),
 		})
 		if len(containers) == 0 {
-			return fmt.Errorf("container %s failed to start", containerName)
+			log.Printf("container %s failed to start", containerName)
+			return fmt.Errorf("failed to invoke function")
 		}
 
 		// Wait with exponential backoff
@@ -227,17 +236,20 @@ func (e *Engine) invokeHttpRequest(url string, params map[string]interface{}) (i
 
 	jsonParams, err := json.Marshal(map[string]interface{}{"params": params})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal params %v", err)
+		log.Printf("failed to marshal params %v", err)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 
 	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonParams))
 	if err != nil {
-		return nil, fmt.Errorf("failed to make HTTP request %v", err)
+		log.Printf("failed to make HTTP request %v", err)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code %d", resp.StatusCode)
+		log.Printf("unexpected status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 
 	var result struct {
@@ -245,10 +257,12 @@ func (e *Engine) invokeHttpRequest(url string, params map[string]interface{}) (i
 		Error  string      `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response %v", err)
+		log.Printf("failed to decode response %v", err)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 	if result.Error != "" {
-		return nil, fmt.Errorf("function error: %s", result.Error)
+		log.Printf("function error: %s", result.Error)
+		return nil, fmt.Errorf("failed to invoke function")
 	}
 
 	return result.Result, nil
@@ -287,11 +301,10 @@ func (e *Engine) handleInvoke(c *gin.Context) {
 }
 
 func (e *Engine) Close() error {
-	fmt.Println("Closing container controller")
 	err := e.cntrCli.Close()
 	if err != nil {
 		return err
 	}
-	fmt.Println("Closing database")
+
 	return e.db.Close()
 }
