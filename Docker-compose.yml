@@ -24,6 +24,9 @@ services:
       - DB_PASSWORD=${MYSQL_PASSWORD}
       - DB_NAME=${MYSQL_DATABASE}
       - CLEANUP_INTERVAL=${CLEANUP_INTERVAL}
+      - DELETE_AFTER=${DELETE_AFTER}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - faas-engine
     networks:

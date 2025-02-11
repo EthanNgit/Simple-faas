@@ -181,7 +181,7 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 		}
 
 		// add is running
-		e.db.UpdateLastUsedTime(uid, true)
+		e.db.UpdateLastUsedTime(fun.ContainerID.String, uid, true)
 	}
 
 	return e.invokeHttpRequest(
@@ -268,7 +268,7 @@ func (e *Engine) invokeHttpRequest(uid string, params map[string]interface{}) (i
 		return nil, fmt.Errorf("failed to invoke function")
 	}
 
-	e.db.UpdateLastUsedTime(uid, false)
+	e.db.UpdateLastUsedTime("", uid, false)
 	return result.Result, nil
 }
 

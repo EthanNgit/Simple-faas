@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -74,5 +76,37 @@ func ConnectDb() (*sql.DB, error) {
 }
 
 func CleanupContainers(db *sql.DB, cli *client.Client) {
-	log.Printf("called to cleanup and has c and d %s %s\n", db, cli)
+	ctx := context.Background()
+	deleteAfter, _ := time.ParseDuration(os.Getenv("DELETE_AFTER"))
+
+	rows, err := db.Query(`
+		SELECT container_id 
+		FROM running_containers 
+		WHERE last_used < NOW() - INTERVAL ? MINUTE
+	`, int(deleteAfter.Minutes()))
+	if err != nil {
+		log.Printf("failed to fetch running containers: %v", err)
+		return
+	}
+
+	for rows.Next() {
+		var cID string
+		if err := rows.Scan(&cID); err != nil {
+			continue
+		}
+
+		if err := cli.ContainerStop(ctx, cID, container.StopOptions{}); err != nil {
+			log.Printf("failed to stop running container %s: %v", cID, err)
+			return
+		}
+
+		_, err := db.Exec(`
+			DELETE FROM running_containers 
+			WHERE container_id = ?
+		`, cID)
+		if err != nil {
+			log.Printf("failed to delete running container entry for %s: %v", cID, err)
+			return
+		}
+	}
 }
