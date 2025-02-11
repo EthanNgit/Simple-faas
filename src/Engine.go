@@ -58,7 +58,7 @@ func NewEngine() (*Engine, error) {
 	ctx := context.Background()
 	_, err = cli.NetworkInspect(ctx, e.netName, types.NetworkInspectOptions{})
 	if err != nil {
-		// try to create an network if it doesnt exist
+		// try to create an network if it doesn't exist
 		_, err = cli.NetworkCreate(ctx, e.netName, types.NetworkCreate{
 			Driver: "bridge",
 		})

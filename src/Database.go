@@ -62,7 +62,7 @@ func ConnectDb() (*FunctionDB, error) {
 
 	if err != nil {
 		log.Printf("database error starting database: %v", err)
-		return nil, fmt.Errorf("Could not connect to database")
+		return nil, fmt.Errorf("could not connect to database")
 	}
 
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS functions (
@@ -76,7 +76,7 @@ func ConnectDb() (*FunctionDB, error) {
 	_, err = db.Exec(query)
 	if err != nil {
 		log.Printf("database error Checking functions table: %v", err)
-		return nil, fmt.Errorf("Could not connect to database")
+		return nil, fmt.Errorf("could not connect to database")
 	}
 
 	return &FunctionDB{db: db}, nil

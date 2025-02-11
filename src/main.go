@@ -16,11 +16,6 @@ type InvokeRequest struct {
 	Params map[string]interface{} `json:"params"`
 }
 
-type FuncInfo struct {
-	FuncCode string
-	FuncCntr string
-}
-
 func main() {
 	engine, err := NewEngine()
 	if err != nil {
