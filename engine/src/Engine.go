@@ -78,6 +78,10 @@ func generateEngineId() string {
 	return fmt.Sprintf("engine-%d", r.Intn(100000))
 }
 
+func int64Ptr(i int64) *int64 {
+	return &i
+}
+
 func (e *Engine) CreateFunction(name, code string) (string, error) {
 	// for concurrency issues
 	e.mu.Lock()
@@ -109,12 +113,12 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 				Memory:    512 * 1024 * 1024,
 				CPUPeriod: 100000,
 				CPUQuota:  50000,
-			},
-			RestartPolicy: container.RestartPolicy{
-				Name: "unless-stopped",
+				PidsLimit: int64Ptr(20),
 			},
 			ReadonlyRootfs: true,
 			Tmpfs:          map[string]string{"/tmp": "size=100M"},
+			CapDrop:        []string{"ALL"},
+			SecurityOpt:    []string{"no-new-privileges:true"},
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{

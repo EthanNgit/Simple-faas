@@ -1,4 +1,6 @@
 FROM python:3.12.9-alpine3.21
 RUN pip install flask
 COPY app.py /app.py
+RUN adduser -D appuser
+USER appuser
 CMD ["python", "/app.py"]
