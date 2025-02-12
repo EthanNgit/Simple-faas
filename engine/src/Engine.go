@@ -96,13 +96,25 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 		&container.Config{
 			Image: "faas-base-image",
 			Env:   []string{fmt.Sprintf("FUNCTION_CODE=%s", code)},
-			Labels: map[string]string{
-				"faas_engine_id": e.engId,
-				"faas_function":  name,
+			Healthcheck: &container.HealthConfig{
+				Test:     []string{"CMD", "curl", "-f", "http://localhost:5000/health"},
+				Interval: 5 * time.Second,
+				Timeout:  1 * time.Second,
+				Retries:  3,
 			},
 		},
 		&container.HostConfig{
 			NetworkMode: container.NetworkMode(e.netName),
+			Resources: container.Resources{
+				Memory:    512 * 1024 * 1024,
+				CPUPeriod: 100000,
+				CPUQuota:  50000,
+			},
+			RestartPolicy: container.RestartPolicy{
+				Name: "unless-stopped",
+			},
+			ReadonlyRootfs: true,
+			Tmpfs:          map[string]string{"/tmp": "size=100M"},
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
