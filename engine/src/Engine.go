@@ -21,7 +21,7 @@ import (
 
 type Engine struct {
 	cntrCli         *client.Client
-	cachedFunctions map[string]FunctionEntry
+	cachedFunctions map[string]FunctionEntry // TODO: currently no eviction policy, maybe lru
 	netName         string
 	engId           string
 	mu              sync.Mutex
@@ -37,11 +37,13 @@ func NewEngine() (*Engine, error) {
 	}
 
 	// get a id for this container, random should be good enough
+	// TODO: if there is to be concurrency between engines, this should work differently
 	engId := os.Getenv("ENGINE_ID")
 	if engId == "" {
 		engId = generateEngineId()
 	}
 
+	// connect to the database
 	db, err := ConnectDb()
 	if err != nil {
 		log.Printf("failed to connect to database %v", err)
@@ -56,7 +58,7 @@ func NewEngine() (*Engine, error) {
 		db:              db,
 	}
 
-	// since we can support multiple engines, make sure to verify the network
+	// make sure to verify the network
 	ctx := context.Background()
 	_, err = cli.NetworkInspect(ctx, e.netName, network.InspectOptions{})
 	if err != nil {
@@ -83,7 +85,6 @@ func int64Ptr(i int64) *int64 {
 }
 
 func (e *Engine) CreateFunction(name, code string) (string, error) {
-	// for concurrency issues
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -129,7 +130,7 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 		uid,
 	)
 	if err != nil {
-		// backtrack insertion
+		// backtrack insertion on failure
 		err2 := e.db.DeleteFunction(uid)
 		if err2 != nil {
 			log.Printf("engine error deleting %s: %v", name, err2)
@@ -140,13 +141,14 @@ func (e *Engine) CreateFunction(name, code string) (string, error) {
 		return "", fmt.Errorf("failed to create function")
 	}
 
-	// update the cid in db
+	// update the container id in db now that container is created
 	err = e.db.UpdateCIDToFunction(uid, resp.ID)
 	if err != nil {
 		log.Printf("engine updating container id for %s(%s): %v", uid, name, err)
 		return "", fmt.Errorf("failed to create function")
 	}
 
+	// get function to cache it for fast access later
 	fun, err := e.db.GetFunction(uid)
 	if err != nil {
 		log.Printf("engine getting information about %s(%s): %v", uid, name, err)
@@ -161,6 +163,7 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// get the function from cache or db
 	fun, exists := e.cachedFunctions[uid]
 	if !exists {
 		var err error
@@ -171,6 +174,7 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 		}
 	}
 
+	// find the container
 	ctx := context.Background()
 	inspect, err := e.cntrCli.ContainerInspect(ctx, fun.ContainerID.String)
 	if err != nil {
@@ -179,6 +183,7 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 	}
 
 	if !inspect.State.Running {
+		// if the container exists and is not running, start it
 		if err := e.cntrCli.ContainerStart(
 			ctx,
 			fun.ContainerID.String,
@@ -188,6 +193,7 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 			return nil, fmt.Errorf("failed to invoke function")
 		}
 
+		// wait for cold boot before continuing
 		if err := e.waitForContainerReady(
 			uid,
 			10*time.Second,
@@ -196,10 +202,11 @@ func (e *Engine) InvokeFunction(uid string, params map[string]interface{}) (inte
 			return nil, fmt.Errorf("failed to invoke function")
 		}
 
-		// add is running
+		// update its last used time
 		e.db.UpdateLastUsedTime(fun.ContainerID.String, uid, true)
 	}
 
+	// call the api inside the container
 	return e.invokeHttpRequest(
 		uid,
 		params,
@@ -211,24 +218,24 @@ func (e *Engine) waitForContainerReady(containerName string, timeout time.Durati
 	url := fmt.Sprintf("http://%s:5000/health", containerName)
 	startTime := time.Now()
 
-	// Exponential backoff with jitter
+	// exponential backoff with jitter
 	backoff := 500 * time.Millisecond
 	maxBackoff := 5 * time.Second
 
 	for {
-		// Check timeout
+		// check timeout
 		if time.Since(startTime) > timeout {
 			log.Printf("container %s did not become ready within %v", containerName, timeout)
 			return fmt.Errorf("failed to invoke function")
 		}
 
-		// Send health check request
+		// send health check request
 		resp, err := client.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
-			return nil // Container is ready
+			return nil // container is ready
 		}
 
-		// If the container crashed, abort immediately
+		// if the container crashed, abort immediately
 		ctx := context.Background()
 		containers, _ := e.cntrCli.ContainerList(ctx, container.ListOptions{
 			Filters: filters.NewArgs(filters.Arg("name", containerName)),
@@ -238,7 +245,7 @@ func (e *Engine) waitForContainerReady(containerName string, timeout time.Durati
 			return fmt.Errorf("failed to invoke function")
 		}
 
-		// Wait with exponential backoff
+		// wait with exponential backoff
 		time.Sleep(backoff)
 		backoff = time.Duration(float64(backoff) * 1.5)
 		if backoff > maxBackoff {

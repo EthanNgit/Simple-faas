@@ -25,12 +25,12 @@ func main() {
 
 	fmt.Printf("[FAAS-debug] Engine id %s\n", engine.engId)
 
-	// Setup api routes
+	// setup api routes
 	router := gin.Default()
 	router.POST("/api/functions/v1/create", engine.handleCreate)
 	router.POST("/api/functions/v1/invoke", engine.handleInvoke)
 
-	// Run the api loop
+	// run the api loop
 	fmt.Println("[FAAS-debug] Starting server")
 	router.Run(":8080")
 }

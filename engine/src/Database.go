@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func ConnectDb() (*FunctionDB, error) {
 	var db *sql.DB
 	var err error
 
-	// Retry connection for 30 seconds
+	// retry connection for 30 seconds
 	for i := 0; i < 10; i++ {
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
@@ -65,6 +66,8 @@ func ConnectDb() (*FunctionDB, error) {
 		return nil, fmt.Errorf("could not connect to database")
 	}
 
+	// TODO: perhaps extract this out to another container service, but for now here
+	// create the tables needed
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS functions (
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		function_name VARCHAR(%d) NOT NULL,
@@ -96,12 +99,14 @@ func ConnectDb() (*FunctionDB, error) {
 }
 
 func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCode string) (uid string, err error) {
+	// check basic validation on input
 	if functionName == "" || functionLanguage == "" || functionCode == "" {
 		return "", fmt.Errorf("database insertion requires non empty values for functionName, language, and code")
 	} else if len(functionName) > FunctionNameMaxLen || len(functionLanguage) > FunctionLanguageMaxLen || len(functionCode) > FunctionCodeMaxLen {
 		return "", fmt.Errorf("database insertion requires function name, code, or language is too long")
 	}
 
+	// ensure atomicity
 	tx, err := fDB.db.Begin()
 	if err != nil {
 		log.Printf("database failed to start transaction: %v", err)
@@ -109,6 +114,7 @@ func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCo
 	}
 	defer tx.Rollback()
 
+	// insert the function
 	res, err := fDB.db.Exec(
 		"INSERT INTO functions (function_name, function_language, function_code) VALUES (?, ?, ?)",
 		functionName, functionLanguage, functionCode,
@@ -124,6 +130,7 @@ func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCo
 		return "", fmt.Errorf("database internal error")
 	}
 
+	// get the function to make the uid
 	var fun FunctionEntry
 	row := tx.QueryRow("SELECT id, function_name, function_language, function_code, container_id FROM functions WHERE id = ?", lID)
 	err = row.Scan(&fun.ID, &fun.FunctionName, &fun.FunctionLanguage, &fun.FunctionCode, &fun.ContainerID)
@@ -144,6 +151,7 @@ func (fDB *FunctionDB) InsertFunction(functionName, functionLanguage, functionCo
 func (fDB *FunctionDB) UpdateCIDToFunction(uid, containerId string) error {
 	id := fDB.solveFunctionID(uid)
 
+	// update the container id
 	_, err := fDB.db.Exec(
 		"UPDATE functions SET container_id = ? WHERE id = ?",
 		containerId, id,
@@ -158,6 +166,7 @@ func (fDB *FunctionDB) UpdateCIDToFunction(uid, containerId string) error {
 func (fDB *FunctionDB) GetFunction(uid string) (function FunctionEntry, err error) {
 	id := fDB.solveFunctionID(uid)
 
+	// get the function
 	var fun FunctionEntry
 	row := fDB.db.QueryRow("SELECT id, function_name, function_language, function_code, container_id FROM functions WHERE id = ?", id)
 	err = row.Scan(&fun.ID, &fun.FunctionName, &fun.FunctionLanguage, &fun.FunctionCode, &fun.ContainerID)
@@ -171,6 +180,8 @@ func (fDB *FunctionDB) GetFunction(uid string) (function FunctionEntry, err erro
 func (fDB *FunctionDB) DeleteFunction(uid string) error {
 	id := fDB.solveFunctionID(uid)
 
+	// TODO: perhaps add a way to delete functions via api
+	// delete the function
 	_, err := fDB.db.Exec("DELETE FROM functions WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("database error deleting function %s(%s): %v", uid, id, err)
@@ -180,11 +191,29 @@ func (fDB *FunctionDB) DeleteFunction(uid string) error {
 }
 
 func (fDB *FunctionDB) generateFunctionID(entry FunctionEntry) (id string) {
-	// TODO: make more advanced <64, cleansing etc
-	return strings.ToLower(strings.ReplaceAll(entry.FunctionName, "_", "-")) + "-" + strconv.Itoa(entry.ID)
+	//TODO: if a number gets over 64 characters
+	name := strings.ToLower(strings.ReplaceAll(entry.FunctionName, "_", "-")) // only allow '-'
+
+	re := regexp.MustCompile(`[^a-z0-9\-]`) // clear any non alphanumeric characters + '-'
+	name = re.ReplaceAllString(name, "")
+
+	// suffix is mandatory "-n", where n is the id (32Int, where it is not possible to be 63 in len)
+	suffix := "-" + strconv.Itoa(entry.ID)
+
+	// sacrifice the name in exchange for the id of the container
+	maxNameLength := 63 - len(suffix)
+	if maxNameLength < 1 {
+		maxNameLength = 0
+	}
+	if len(name) > maxNameLength {
+		name = name[:maxNameLength]
+	}
+
+	return name + suffix
 }
 
 func (fDB *FunctionDB) solveFunctionID(uid string) string {
+	// since the name is "name-n" where n is the id, we just need to get it
 	index := strings.LastIndex(uid, "-")
 
 	if index != -1 {
@@ -200,8 +229,10 @@ func (fDB *FunctionDB) Close() error {
 }
 
 func (fDB *FunctionDB) UpdateLastUsedTime(cid, uid string, create bool) error {
+	// TODO: could make the api of this function easier, but not really needed
 	id := fDB.solveFunctionID(uid)
 
+	// insert the log of it running or update it if it exists
 	if create {
 		_, err := fDB.db.Exec("INSERT INTO running_containers (container_id, function_id) VALUES (?, ?)", cid, id)
 		if err != nil {
